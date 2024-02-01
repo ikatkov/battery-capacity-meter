@@ -1,0 +1,22 @@
+Circuit: * \\vmware-host\Shared Folders\non-work-projects\battery-capacity-meter-2024\ltspice\tl431-analog-switch.asc
+
+Direct Newton iteration for .op point succeeded.
+
+Date: Wed Jan 31 17:21:01 2024
+Total elapsed time: 0.300 seconds.
+
+tnom = 27
+temp = 27
+method = Gear
+totiter = 2731
+traniter = 2719
+tranpoints = 1330
+accept = 1257
+rejected = 73
+matrix size = 20
+fillins = 7
+solver = Normal
+Avg thread counts: 1.1/1.2/1.2/1.1
+Matrix Compiler1:      65 opcodes  0.2/[0.2]/0.2
+Matrix Compiler2: off  [0.1]/0.2/0.2
+
