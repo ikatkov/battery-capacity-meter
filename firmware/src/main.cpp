@@ -1,29 +1,46 @@
 #include <Arduino.h>
 #include <OneButton.h>
+#include <TM1637Display.h>
 
-#define CHARGE_CURRENT_PIN A7
 #define BATTERY_VOLTAGE_PIN A0
+#define CHARGE_I_SENSE_PIN A1
+#define BATTERY_POLARITY_SENSE_PIN A2
 
-#define ONE_AMP_PIN 2 // OUTPUT LOW = 1A, OUTPUT HIGH = INVALID, INPUT 0.5A
-#define CHARGE_DISCHARGE_PIN 3
+#define ONE_A_MODE_PIN A3
+#define CHARGE_EN_PIN 12
+#define NOT_ONE_A_MODE_PIN 11
+#define DISCHARGE_EN_PIN 10
+#define BUZZER_PIN 9
 
-#define CHARGE_DISCHARGE_BUTTON_PIN 6
-#define ONE_AMP_BUTTON_PIN 7
-#define ONE_AMP_LED_PIN 8
+// display
+#define DIO_PIN 8
+#define CLK_PIN 7
 
-// #define BUZZER_PIN 4
+#define CHARGE_DISCHARGE_BUTTON_PIN 3
+#define ONE_AMP_BUTTON_PIN 2
+
+const uint8_t SEG_DONE[] = {
+    SEG_B | SEG_C | SEG_D | SEG_E | SEG_G,         // d
+    SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F, // O
+    SEG_C | SEG_E | SEG_G,                         // n
+    SEG_A | SEG_D | SEG_E | SEG_F | SEG_G          // E
+};
 
 OneButton chargeDischargeButton = OneButton(CHARGE_DISCHARGE_BUTTON_PIN, true, true);
 OneButton oneAmpButton = OneButton(ONE_AMP_BUTTON_PIN, true, true);
+TM1637Display display(CLK_PIN, DIO_PIN);
 
-bool chargeDischargeState = true; // true = charge, false = discharge
-bool oneAmpState = false;         // false = 0.5A, true = 1A
+bool chargeState = false; // true = charge, false = discharge
+bool oneAmpState = false; // false = 0.5A, true = 1A
+
+void setChargeState(bool state);
 
 void onChargeDischargeButtonClick()
 {
     Serial.println(F("onChargeDischargeButtonClick"));
-    chargeDischargeState = !chargeDischargeState;
-    digitalWrite(CHARGE_DISCHARGE_PIN, chargeDischargeState);
+    chargeState = !chargeState;
+    Serial.println(chargeState ? F("charge") : F("discharge"));
+    setChargeState(chargeState);
 }
 
 void onOneAmpButtonClick()
@@ -34,40 +51,88 @@ void onOneAmpButtonClick()
     if (oneAmpState)
     {
         // 1A
-        pinMode(ONE_AMP_PIN, OUTPUT);
-        digitalWrite(ONE_AMP_PIN, LOW);
-        digitalWrite(ONE_AMP_LED_PIN, HIGH);
+        digitalWrite(ONE_A_MODE_PIN, HIGH);
+        digitalWrite(NOT_ONE_A_MODE_PIN, LOW);
     }
     else
     {
         // 0.5A
-        pinMode(ONE_AMP_PIN, INPUT);
-        digitalWrite(ONE_AMP_LED_PIN, LOW);
-        digitalWrite(ONE_AMP_LED_PIN, LOW);
+        digitalWrite(ONE_A_MODE_PIN, LOW);
+        digitalWrite(NOT_ONE_A_MODE_PIN, HIGH);
+    }
+}
+
+void setOneAmpMode(bool state)
+{
+    oneAmpState = state;
+    if (oneAmpState)
+    {
+        // 1A
+        digitalWrite(ONE_A_MODE_PIN, HIGH);
+        digitalWrite(NOT_ONE_A_MODE_PIN, LOW);
+    }
+    else
+    {
+        // 0.5A
+        digitalWrite(ONE_A_MODE_PIN, LOW);
+        digitalWrite(NOT_ONE_A_MODE_PIN, HIGH);
+    }
+}
+
+void setChargeState(bool state)
+{
+    if (state)
+    {
+        // charge
+        digitalWrite(CHARGE_EN_PIN, HIGH);
+        pinMode(DISCHARGE_EN_PIN, OUTPUT);
+        digitalWrite(DISCHARGE_EN_PIN, LOW);
+    }
+    else
+    {
+        // discharge
+        digitalWrite(CHARGE_EN_PIN, LOW);
+        pinMode(DISCHARGE_EN_PIN, INPUT);
     }
 }
 
 void setup()
 {
-    pinMode(CHARGE_DISCHARGE_PIN, OUTPUT);
-    digitalWrite(CHARGE_DISCHARGE_PIN, HIGH); // HIGH = charge, LOW = discharge
-
-    pinMode(ONE_AMP_LED_PIN, OUTPUT);
-    pinMode(ONE_AMP_PIN, INPUT);
-    digitalWrite(ONE_AMP_LED_PIN, LOW);
-    digitalWrite(ONE_AMP_LED_PIN, LOW);
-
     pinMode(BATTERY_VOLTAGE_PIN, INPUT);
-    pinMode(CHARGE_CURRENT_PIN, INPUT);
+    pinMode(CHARGE_I_SENSE_PIN, INPUT);
+    pinMode(BATTERY_POLARITY_SENSE_PIN, INPUT);
+
+    pinMode(CHARGE_EN_PIN, OUTPUT);
+    pinMode(ONE_A_MODE_PIN, OUTPUT);
+    pinMode(NOT_ONE_A_MODE_PIN, OUTPUT);
+    pinMode(BUZZER_PIN, OUTPUT);
     analogReference(EXTERNAL);
 
+    pinMode(DIO_PIN, OUTPUT);
+    pinMode(CLK_PIN, OUTPUT);
+
+    pinMode(DISCHARGE_EN_PIN, INPUT);
+
+    setOneAmpMode(false);
+    setChargeState(false);
+
     Serial.begin(38400);
+    Serial.println(F("booting up"));
+
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(100);
+
+    Serial.println(F("Display test"));
+    display.setBrightness(255, true);
+    display.setSegments(SEG_DONE);
+
+    digitalWrite(BUZZER_PIN, LOW);
+
     // while (!Serial)
     // {
     //     delay(1);
     // }
 
-    Serial.println(F("booting up"));
     chargeDischargeButton.attachClick(onChargeDischargeButtonClick);
     oneAmpButton.attachClick(onOneAmpButtonClick);
 }
@@ -82,7 +147,7 @@ void loop()
 
     if (lastTimeSensorRead + 1000 < millis())
     {
-        int sensorValue = analogRead(CHARGE_CURRENT_PIN);
+        int sensorValue = analogRead(CHARGE_I_SENSE_PIN);
         // V = (sensorValue + 0.5) * V_REF / 1024.0
         float voltage = (sensorValue + 0.5) * 2.5 / 1024.0;
         Serial.print(sensorValue);
@@ -91,9 +156,9 @@ void loop()
         Serial.print("\t");
         // I = 1.06437919 * V + 0.01570146
         float chargeCurrent = 1.06437919 * voltage + 0.01570146;
-        if (oneAmpState)
+        if (!oneAmpState)
         {
-            chargeCurrent *= 2;
+            chargeCurrent /= 2;
         }
         Serial.println(chargeCurrent);
         lastTimeSensorRead = millis();
