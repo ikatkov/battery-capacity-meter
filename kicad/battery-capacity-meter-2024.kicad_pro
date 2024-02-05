@@ -535,7 +535,7 @@
       "idf": "",
       "netlist": "",
       "specctra_dsn": "",
-      "step": "",
+      "step": "battery-capacity-meter-2024-display-board.step",
       "vrml": ""
     },
     "page_layout_descr_file": ""

@@ -1,0 +1,13 @@
+0.5A 
+=====
+Fitted parameters for 4th-degree polynomial:  0.27035568*pow(voltage, 4) + -0.51039031*pow(voltage, 3) + 0.31013550*pow(voltage, 2) + 0.44244364*voltage + 0.00128515
+Fitted parameters for 3rd-degree polynomial:  0.09325863*pow(voltage, 3) + -0.13783420*pow(voltage, 2) + 0.56727601*voltage + -0.00927211
+Fitted parameters for 2nd-degree polynomial:  0.02794441*pow(voltage, 2) + 0.48445722*voltage + 0.00029737
+Fitted parameters for linear function:  0.51579271*voltage + -0.00502295
+
+1A 
+=====
+Fitted parameters for 4th-degree polynomial:  -0.50940504*pow(voltage, 4) + 1.11893064*pow(voltage, 3) + -0.80032945*pow(voltage, 2) + 1.19824953*voltage + -0.01151128
+Fitted parameters for 3rd-degree polynomial:  0.02641582*pow(voltage, 3) + -0.03749443*pow(voltage, 2) + 1.00662362*voltage + 0.00093661
+Fitted parameters for 2nd-degree polynomial:  0.00539237*pow(voltage, 2) + 0.98790520*voltage + 0.00265263
+Fitted parameters for linear function:  0.99337865*voltage + 0.00176501
