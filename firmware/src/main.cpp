@@ -1,9 +1,7 @@
-// TODO: handle battery disconnect mid cycle
-// TODO: wrong battery polarity
-
 #include <Arduino.h>
 #include <OneButton.h>
 #include <TM1637Display.h>
+#include <movingAvg.h>
 
 #define BATTERY_VOLTAGE_PIN A0
 #define CHARGE_I_SENSE_PIN A1
@@ -72,7 +70,7 @@ OneButton oneAmpButton = OneButton(ONE_AMP_BUTTON_PIN, true, true);
 TM1637Display display(CLK_PIN, DIO_PIN);
 
 #define BAT_LOW_VOLTAGE_CUT_OFF 3000
-#define BAT_HIGH_VOLTAGE_CUT_OFF 4200
+#define BAT_HIGH_VOLTAGE_CUT_OFF 4150
 
 enum STATE
 {
@@ -85,8 +83,11 @@ enum STATE
 STATE state = IDLE;       // true = charge, false = discharge
 bool oneAmpState = false; // false = 0.5A, true = 1A
 
-int chargeCurrent = 0;
-int batteryVoltage = 0;
+movingAvg chargeCurrent(12);  // use 12 data points for the moving average, every 5sec it's 60sec averaging
+movingAvg batteryVoltage(12); // use 12 data points for the moving average, every 5sec it's 60sec averaging when charging, 12sec when discharging
+
+// int chargeCurrent = 0;
+// int batteryVoltage = 0;
 int batteryPercentage = 0;
 int batteryCapacitymAh = 0;
 
@@ -113,6 +114,7 @@ void setState(STATE stateValue)
     else if (state == DISCHARGING)
     {
         batteryCapacitymAh = 0;
+        batteryVoltage.reset();
         display.setSegments(TEXT_TEST);
         // discharge
         digitalWrite(CHARGE_EN_PIN, LOW);
@@ -156,7 +158,7 @@ void onChargeDischargeButtonClick()
     {
         // check if battery connected
         readBatteryVoltage();
-        if (batteryVoltage < 1000)
+        if (batteryVoltage.getAvg() < 1000)
         {
             Serial.println(F("Battery disconnected"));
             display.setSegments(TEXT_BATT);
@@ -177,7 +179,7 @@ void onChargeDischargeButtonClick()
     {
         // before starting the discharge, check if battery voltage is too low
         readBatteryVoltage();
-        if (batteryVoltage <= BAT_LOW_VOLTAGE_CUT_OFF)
+        if (batteryVoltage.getAvg() <= BAT_LOW_VOLTAGE_CUT_OFF)
         {
             Serial.println(F("Battery voltage too low"));
             display.setSegments(TEXT_BATT);
@@ -230,8 +232,14 @@ void onOneAmpButtonClick()
         digitalWrite(ONE_A_MODE_PIN, LOW);
         digitalWrite(NOT_ONE_A_MODE_PIN, HIGH);
     }
-    // reset battery capacity
-    batteryCapacitymAh = 0;
+    if (state == DISCHARGING)
+    {
+        // reset battery capacity
+        batteryCapacitymAh = 0;
+        dischargeIntervalStartedMs = millis();
+        Serial.print(F("Discharge interval started:\t"));
+        Serial.println(dischargeIntervalStartedMs);
+    }
 }
 
 void setOneAmpMode(bool state)
@@ -275,8 +283,9 @@ void readBatteryVoltage(int delayMs = 0)
     // read battery voltage
     int sensorValue = analogRead(BATTERY_VOLTAGE_PIN);
     // V = (sensorValue + 0.5) * V_REF / 1024.0
-    batteryVoltage = round(1000 * 2 * ((sensorValue + 0.5) * 2.5 / 1024.0));
-    batteryPercentage = map(batteryVoltage, BAT_LOW_VOLTAGE_CUT_OFF, BAT_HIGH_VOLTAGE_CUT_OFF, 0, 100);
+    int batteryVoltageValue = round(1000 * 2 * ((sensorValue + 0.5) * 2.5 / 1024.0));
+    batteryVoltage.reading(batteryVoltageValue);
+    batteryPercentage = map(batteryVoltage.getAvg(), BAT_LOW_VOLTAGE_CUT_OFF, BAT_HIGH_VOLTAGE_CUT_OFF, 0, 100);
 
     if (state == CHARGING)
     {
@@ -287,7 +296,9 @@ void readBatteryVoltage(int delayMs = 0)
     Serial.print("Voltage =\t");
     Serial.print(sensorValue);
     Serial.print("\t");
-    Serial.print(batteryVoltage);
+    Serial.print(batteryVoltageValue);
+    Serial.print("\t");
+    Serial.print(batteryVoltage.getAvg());
     Serial.print("\t");
     Serial.print(batteryPercentage);
     Serial.println("%");
@@ -298,13 +309,16 @@ void readChargeCurrent()
     int sensorValue = analogRead(CHARGE_I_SENSE_PIN);
     // V = (sensorValue + 0.5) * V_REF / 1024.0
     float voltage = (sensorValue + 0.5) * 2.5 / 1024.0;
-    chargeCurrent = round(1000 * max(0, computeChargeCurrent(voltage))); // charging current in mA
+    int chargeCurrentValue = round(1000 * max(0, computeChargeCurrent(voltage))); // charging current in mA
+    chargeCurrent.reading(chargeCurrentValue);
     Serial.print("Charge Current =\t");
     Serial.print(sensorValue);
     Serial.print("\t");
     Serial.print(voltage);
     Serial.print("\t");
-    Serial.println(chargeCurrent);
+    Serial.print(chargeCurrentValue);
+    Serial.print("\t");
+    Serial.println(chargeCurrent.getAvg());
 }
 
 void setup()
@@ -341,6 +355,9 @@ void setup()
 
     chargeDischargeButton.attachClick(onChargeDischargeButtonClick);
     oneAmpButton.attachClick(onOneAmpButtonClick);
+
+    chargeCurrent.begin();
+    batteryVoltage.begin();
 }
 
 void loop()
@@ -370,7 +387,7 @@ void loop()
         {
             readBatteryVoltage(10);
             lastTimeBatteryVoltageRead = millis();
-            if (batteryVoltage < 1000)
+            if (batteryVoltage.getAvg() < 1000)
             {
                 Serial.println(F("Battery disconnected"));
                 display.setSegments(TEXT_BATT);
@@ -388,7 +405,7 @@ void loop()
             messageToggle = !messageToggle;
             if (messageToggle)
             {
-                display.showNumberDecEx(batteryVoltage, 0b10000000, false);
+                display.showNumberDecEx(batteryVoltage.getAvg(), 0b10000000, false);
             }
             else
             {
@@ -405,11 +422,11 @@ void loop()
         }
 
         // are we done charging?
-        if ((oneAmpState && chargeCurrent < 90) || (!oneAmpState && chargeCurrent < 45))
+        if (chargeCurrent.getAvg() < 10 || (batteryVoltage.getAvg() >= BAT_HIGH_VOLTAGE_CUT_OFF) || ((oneAmpState && chargeCurrent.getAvg() < 50) || (!oneAmpState && chargeCurrent.getAvg() < 25)))
         {
             // check if battery connected
             readBatteryVoltage(1000);
-            if (batteryVoltage < 1000)
+            if (batteryVoltage.getAvg() < 1000)
             {
                 Serial.println(F("Battery disconnected"));
                 display.setSegments(TEXT_BATT);
@@ -448,16 +465,34 @@ void loop()
             Serial.print(F("Discharge battery capacity (mA*h)=\t"));
             Serial.println(batteryCapacitymAh);
             display.showNumberDec(batteryCapacitymAh);
+
+            messageToggle = !messageToggle;
+            if (messageToggle)
+            {
+                display.showNumberDec(batteryCapacitymAh);
+            }
+            else
+            {
+                display.setSegments(TEXT_PERCENT);
+                display.showNumberDec(batteryPercentage, false, 2, 0);
+            }
         }
 
-        if (batteryVoltage < BAT_LOW_VOLTAGE_CUT_OFF)
+        if (batteryVoltage.getAvg() < BAT_LOW_VOLTAGE_CUT_OFF)
         {
             Serial.println(F("Done discharge, battery voltage too low"));
             display.setSegments(TEXT_DONE);
-            longBeep();
-            // disconnect both discharge
+            // disconnect both discharge and charge
             setState(DONE);
             lastTimeMessageDisplayed = millis();
+            longBeep();
+            longBeep();
+            delay(500);
+            longBeep();
+            longBeep();
+            delay(500);
+            longBeep();
+            longBeep();
         }
     }
     else if (state == DONE)
@@ -490,8 +525,8 @@ void loop()
             {
                 readBatteryVoltage();
                 // if voltage is too low, there is no battery connected
-                if (batteryVoltage > 1000)
-                    display.showNumberDecEx(batteryVoltage, 0b10000000, false);
+                if (batteryVoltage.getAvg() > 1000)
+                    display.showNumberDecEx(batteryVoltage.getAvg(), 0b10000000, false);
             }
         }
     }
