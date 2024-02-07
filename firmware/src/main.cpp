@@ -282,26 +282,30 @@ void readBatteryVoltage(int delayMs = 0)
 
     // read battery voltage
     int sensorValue = analogRead(BATTERY_VOLTAGE_PIN);
-    // V = (sensorValue + 0.5) * V_REF / 1024.0
-    int batteryVoltageValue = round(1000 * 2 * ((sensorValue + 0.5) * 2.5 / 1024.0));
-    batteryVoltage.reading(batteryVoltageValue);
-    batteryPercentage = map(batteryVoltage.getAvg(), BAT_LOW_VOLTAGE_CUT_OFF, BAT_HIGH_VOLTAGE_CUT_OFF, 0, 100);
+    // ignore sensor is battery is not connected
+    if (sensorValue > 20)
+    {
+        // V = (sensorValue + 0.5) * V_REF / 1024.0
+        int batteryVoltageValue = round(1000 * 2 * ((sensorValue + 0.5) * 2.5 / 1024.0));
+        batteryVoltage.reading(batteryVoltageValue);
+        batteryPercentage = map(batteryVoltage.getAvg(), BAT_LOW_VOLTAGE_CUT_OFF, BAT_HIGH_VOLTAGE_CUT_OFF, 0, 100);
+
+        Serial.print("Voltage =\t");
+        Serial.print(sensorValue);
+        Serial.print("\t");
+        Serial.print(batteryVoltageValue);
+        Serial.print("\t");
+        Serial.print(batteryVoltage.getAvg());
+        Serial.print("\t");
+        Serial.print(batteryPercentage);
+        Serial.println("%");
+    }
 
     if (state == CHARGING)
     {
         // restore charge state
         digitalWrite(CHARGE_EN_PIN, HIGH);
     }
-
-    Serial.print("Voltage =\t");
-    Serial.print(sensorValue);
-    Serial.print("\t");
-    Serial.print(batteryVoltageValue);
-    Serial.print("\t");
-    Serial.print(batteryVoltage.getAvg());
-    Serial.print("\t");
-    Serial.print(batteryPercentage);
-    Serial.println("%");
 }
 
 void readChargeCurrent()
