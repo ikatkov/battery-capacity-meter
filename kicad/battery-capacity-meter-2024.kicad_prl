@@ -64,8 +64,8 @@
       39,
       40
     ],
-    "visible_layers": "ffcffff_ffffffff",
-    "zone_display_mode": 0
+    "visible_layers": "ffd7fdf_ffffffff",
+    "zone_display_mode": 1
   },
   "meta": {
     "filename": "battery-capacity-meter-2024.kicad_prl",

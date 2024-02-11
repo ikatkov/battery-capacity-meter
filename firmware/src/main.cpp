@@ -6,6 +6,7 @@
 #define BATTERY_VOLTAGE_PIN A0
 #define CHARGE_I_SENSE_PIN A1
 #define BATTERY_POLARITY_SENSE_PIN A2
+#define OVERVOLTAGE_SENSE_PIN 4
 
 #define ONE_A_MODE_PIN A3
 #define CHARGE_EN_PIN 12
@@ -20,10 +21,27 @@
 #define CHARGE_DISCHARGE_BUTTON_PIN 3
 #define ONE_AMP_BUTTON_PIN 2
 
+// All segments
 //  SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F | SEG_G
-const uint8_t TEXT_ON[] = {
+const uint8_t TEXT_ON1[] = {
     SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F, // O
-    SEG_C | SEG_E | SEG_G, 0, 0                    // n
+    SEG_C | SEG_E | SEG_G,                         // n
+    0,                                             // space
+    SEG_B | SEG_C                                  // 1
+};
+
+const uint8_t TEXT_ON2[] = {
+    SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F, // O
+    SEG_C | SEG_E | SEG_G,                         // n
+    0,                                             // space
+    SEG_A | SEG_B | SEG_D | SEG_E | SEG_G          // 2
+};
+
+const uint8_t TEXT_ON3[] = {
+    SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F, // O
+    SEG_C | SEG_E | SEG_G,                         // n
+    0,                                             // space
+    SEG_A | SEG_B | SEG_C | SEG_D | SEG_G          // 3
 };
 
 const uint8_t TEXT_CHRG[] = {
@@ -31,6 +49,13 @@ const uint8_t TEXT_CHRG[] = {
     SEG_B | SEG_C | SEG_E | SEG_F | SEG_G, // H
     SEG_E | SEG_G,                         // r
     SEG_A | SEG_C | SEG_D | SEG_E | SEG_F  // G
+};
+
+const uint8_t TEXT_ONLY[] = {
+    SEG_C | SEG_D | SEG_E | SEG_G, // o
+    SEG_C | SEG_E | SEG_G,         // n
+    SEG_B | SEG_C,                 // l
+    SEG_B | SEG_C | SEG_F | SEG_G  // Y
 };
 
 const uint8_t TEXT_TEST[] = {
@@ -54,6 +79,30 @@ const uint8_t TEXT_BATT[] = {
     SEG_D | SEG_E | SEG_F | SEG_G                  // t
 };
 
+// Overvoltage, either from the charger or the battery
+const uint8_t TEXT_ERR_OVERVOLTAGE[] = {
+    SEG_A | SEG_D | SEG_E | SEG_F | SEG_G, // E
+    SEG_E | SEG_G,                         // r
+    SEG_E | SEG_G,                         // r
+    SEG_B | SEG_C                          // 1
+};
+
+// Battery disconnected mid charge process
+const uint8_t TEXT_ERR_BATT_DISCONNECTD_MID_CHARGE[] = {
+    SEG_A | SEG_D | SEG_E | SEG_F | SEG_G, // E
+    SEG_E | SEG_G,                         // r
+    SEG_E | SEG_G,                         // r
+    SEG_A | SEG_B | SEG_D | SEG_E | SEG_G  // 2
+};
+
+// Battery disconnected mid discharge process
+const uint8_t TEXT_ERR_BATT_DISCONNECTD_MID_DISCHARGE[] = {
+    SEG_A | SEG_D | SEG_E | SEG_F | SEG_G, // E
+    SEG_E | SEG_G,                         // r
+    SEG_E | SEG_G,                         // r
+    SEG_A | SEG_B | SEG_C | SEG_D | SEG_G  // 3
+};
+
 const uint8_t TEXT_LO[] = {
     SEG_B | SEG_C | SEG_D | SEG_E | SEG_G, // L
     SEG_C | SEG_D | SEG_E | SEG_G, 0, 0    // O
@@ -72,22 +121,30 @@ TM1637Display display(CLK_PIN, DIO_PIN);
 #define BAT_LOW_VOLTAGE_CUT_OFF 3000
 #define BAT_HIGH_VOLTAGE_CUT_OFF 4150
 
+enum CYCLE_MODE
+{
+    CHARGE_ONLY,
+    CHANGE_DISCHARGE,
+    CHANGE_DISCHARGE_CHARGE
+};
+
 enum STATE
 {
     IDLE,
     CHARGING,
+    SECOND_CHARGING,
     DISCHARGING,
-    DONE
+    DONE,
+    ERROR,
 };
 
-STATE state = IDLE;       // true = charge, false = discharge
+STATE state = IDLE;
+CYCLE_MODE cycleMode = CHANGE_DISCHARGE;
 bool oneAmpState = false; // false = 0.5A, true = 1A
 
 movingAvg chargeCurrent(12);  // use 12 data points for the moving average, every 5sec it's 60sec averaging
 movingAvg batteryVoltage(12); // use 12 data points for the moving average, every 5sec it's 60sec averaging when charging, 12sec when discharging
 
-// int chargeCurrent = 0;
-// int batteryVoltage = 0;
 int batteryPercentage = 0;
 int batteryCapacitymAh = 0;
 
@@ -97,34 +154,35 @@ unsigned long lastTimeMessageDisplayed = millis();
 unsigned long lastTimeBatteryPolarityRead = millis();
 unsigned long dischargeIntervalStartedMs = 0;
 bool messageToggle = false;
+byte messageToggleTristate = 0;
 
 void readBatteryVoltage(int delayMs = 0);
 
-void setState(STATE stateValue)
+void setCycleMode(CYCLE_MODE cycleModeValue)
 {
-    state = stateValue;
-    if (state == CHARGING)
+    cycleMode = cycleModeValue;
+    if (cycleMode == CHARGE_ONLY)
     {
         display.setSegments(TEXT_CHRG);
-        // charge
-        digitalWrite(CHARGE_EN_PIN, HIGH);
-        pinMode(DISCHARGE_EN_PIN, OUTPUT);
-        digitalWrite(DISCHARGE_EN_PIN, LOW);
+        delay(500);
+        display.setSegments(TEXT_ONLY);
+        delay(500);
     }
-    else if (state == DISCHARGING)
+    else if (cycleMode == CHANGE_DISCHARGE)
     {
-        batteryCapacitymAh = 0;
-        batteryVoltage.reset();
+        display.setSegments(TEXT_CHRG);
+        delay(500);
         display.setSegments(TEXT_TEST);
-        // discharge
-        digitalWrite(CHARGE_EN_PIN, LOW);
-        pinMode(DISCHARGE_EN_PIN, INPUT);
+        delay(500);
     }
-    else
+    else if (cycleMode == CHANGE_DISCHARGE_CHARGE)
     {
-        digitalWrite(CHARGE_EN_PIN, LOW);
-        pinMode(DISCHARGE_EN_PIN, OUTPUT);
-        digitalWrite(DISCHARGE_EN_PIN, LOW);
+        display.setSegments(TEXT_CHRG);
+        delay(500);
+        display.setSegments(TEXT_TEST);
+        delay(500);
+        display.setSegments(TEXT_CHRG);
+        delay(500);
     }
 }
 
@@ -148,6 +206,57 @@ void trippleBeep()
     delay(200);
     beep();
     delay(200);
+}
+
+void setState(STATE stateValue)
+{
+    state = stateValue;
+    if (state == CHARGING || state == SECOND_CHARGING)
+    {
+        display.setSegments(TEXT_CHRG);
+        // charge
+        digitalWrite(CHARGE_EN_PIN, HIGH);
+        pinMode(DISCHARGE_EN_PIN, OUTPUT);
+        digitalWrite(DISCHARGE_EN_PIN, LOW);
+    }
+    else if (state == DISCHARGING)
+    {
+        batteryCapacitymAh = 0;
+        batteryVoltage.reset();
+        display.setSegments(TEXT_TEST);
+        // discharge
+        digitalWrite(CHARGE_EN_PIN, LOW);
+        pinMode(DISCHARGE_EN_PIN, INPUT);
+    }
+    else
+    {
+        digitalWrite(CHARGE_EN_PIN, LOW);
+        pinMode(DISCHARGE_EN_PIN, OUTPUT);
+        digitalWrite(DISCHARGE_EN_PIN, LOW);
+    }
+    if (state == DONE)
+    {
+        display.setSegments(TEXT_DONE);
+        lastTimeMessageDisplayed = millis();
+        longBeep();
+        longBeep();
+        delay(500);
+        longBeep();
+        longBeep();
+        delay(500);
+        longBeep();
+        longBeep();
+    }
+}
+
+void onChargeDischargeButtonLngPressStart()
+{
+    Serial.println(F("onChargeDischargeButtonLngPressStart"));
+    longBeep();
+    if (state == IDLE)
+    {
+        setCycleMode(CYCLE_MODE((cycleMode + 1) % 3));
+    }
 }
 
 void onChargeDischargeButtonClick()
@@ -208,7 +317,7 @@ void onChargeDischargeButtonClick()
         Serial.println(F("Stop discharge"));
         setState(DONE);
     }
-    else if (state == DONE)
+    else if (state == DONE || state == ERROR)
     {
         Serial.println(F("Go to idle"));
         setState(IDLE);
@@ -234,6 +343,8 @@ void onOneAmpButtonClick()
     }
     if (state == DISCHARGING)
     {
+        display.setSegments(TEXT_TEST);
+        trippleBeep();
         // reset battery capacity
         batteryCapacitymAh = 0;
         dischargeIntervalStartedMs = millis();
@@ -282,8 +393,8 @@ void readBatteryVoltage(int delayMs = 0)
 
     // read battery voltage
     int sensorValue = analogRead(BATTERY_VOLTAGE_PIN);
-    // ignore sensor is battery is not connected
-    if (sensorValue > 20)
+    // voltage higher than some floating voltage
+    if (sensorValue > 150)
     {
         // V = (sensorValue + 0.5) * V_REF / 1024.0
         int batteryVoltageValue = round(1000 * 2 * ((sensorValue + 0.5) * 2.5 / 1024.0));
@@ -299,6 +410,10 @@ void readBatteryVoltage(int delayMs = 0)
         Serial.print("\t");
         Serial.print(batteryPercentage);
         Serial.println("%");
+    }
+    else
+    {
+        batteryVoltage.reset();
     }
 
     if (state == CHARGING)
@@ -330,6 +445,7 @@ void setup()
     pinMode(BATTERY_VOLTAGE_PIN, INPUT);
     pinMode(CHARGE_I_SENSE_PIN, INPUT);
     pinMode(BATTERY_POLARITY_SENSE_PIN, INPUT);
+    pinMode(OVERVOLTAGE_SENSE_PIN, INPUT);
 
     pinMode(CHARGE_EN_PIN, OUTPUT);
     pinMode(ONE_A_MODE_PIN, OUTPUT);
@@ -344,6 +460,7 @@ void setup()
 
     setOneAmpMode(false);
     setState(IDLE);
+    setCycleMode(CHANGE_DISCHARGE);
 
     Serial.begin(38400);
     Serial.println(F("booting up"));
@@ -353,11 +470,11 @@ void setup()
 
     display.setBrightness(255, true);
     display.clear();
-    display.setSegments(TEXT_ON);
 
     digitalWrite(BUZZER_PIN, LOW);
 
     chargeDischargeButton.attachClick(onChargeDischargeButtonClick);
+    chargeDischargeButton.attachLongPressStart(onChargeDischargeButtonLngPressStart);
     oneAmpButton.attachClick(onOneAmpButtonClick);
 
     chargeCurrent.begin();
@@ -369,7 +486,7 @@ void loop()
     chargeDischargeButton.tick();
     oneAmpButton.tick();
 
-    if (lastTimeBatteryPolarityRead + 1000 < millis())
+    if (lastTimeBatteryPolarityRead + 500 < millis())
     {
         bool correctBatteryPolarity = !digitalRead(BATTERY_POLARITY_SENSE_PIN);
         if (!correctBatteryPolarity)
@@ -380,11 +497,21 @@ void loop()
             longBeep();
             longBeep();
         }
+
+        bool overVoltage = digitalRead(OVERVOLTAGE_SENSE_PIN);
+        if (overVoltage)
+        {
+            Serial.println(F("Overvoltage"));
+            display.setSegments(TEXT_ERR_OVERVOLTAGE);
+            longBeep();
+            longBeep();
+            longBeep();
+        }
         lastTimeBatteryPolarityRead = millis();
     }
 
     // ============ Charge =================
-    if (state == CHARGING)
+    if (state == CHARGING || state == SECOND_CHARGING)
     {
         // read battery voltage every 5 seconds when charging
         if (lastTimeBatteryVoltageRead + 5000 < millis())
@@ -394,11 +521,12 @@ void loop()
             if (batteryVoltage.getAvg() < 1000)
             {
                 Serial.println(F("Battery disconnected"));
-                display.setSegments(TEXT_BATT);
+                display.setSegments(TEXT_ERR_BATT_DISCONNECTD_MID_CHARGE);
                 longBeep();
                 longBeep();
                 longBeep();
-                setState(IDLE);
+                setState(ERROR);
+                return;
             }
         }
 
@@ -426,20 +554,21 @@ void loop()
         }
 
         // are we done charging?
-        if (chargeCurrent.getAvg() < 10 || (batteryVoltage.getAvg() >= BAT_HIGH_VOLTAGE_CUT_OFF) || ((oneAmpState && chargeCurrent.getAvg() < 50) || (!oneAmpState && chargeCurrent.getAvg() < 25)))
+        if (chargeCurrent.getAvg() < 25)
         {
             // check if battery connected
             readBatteryVoltage(1000);
             if (batteryVoltage.getAvg() < 1000)
             {
-                Serial.println(F("Battery disconnected"));
-                display.setSegments(TEXT_BATT);
+                Serial.println(F("Battery disconnected mid charge"));
+                display.setSegments(TEXT_ERR_BATT_DISCONNECTD_MID_CHARGE);
                 longBeep();
                 longBeep();
                 longBeep();
-                setState(IDLE);
+                setState(ERROR);
+                return;
             }
-            else
+            else if (cycleMode == CHANGE_DISCHARGE || (cycleMode == CHANGE_DISCHARGE_CHARGE && state == CHARGING))
             {
                 Serial.println(F("Starting discharge, after full charge"));
                 display.setSegments(TEXT_TEST);
@@ -447,6 +576,11 @@ void loop()
 
                 dischargeIntervalStartedMs = millis();
                 setState(DISCHARGING);
+            }
+            if (cycleMode == CHARGE_ONLY || (cycleMode == CHANGE_DISCHARGE_CHARGE && state == SECOND_CHARGING))
+            {
+                Serial.println(F("Done charging"));
+                setState(DONE);
             }
         }
     }
@@ -470,33 +604,44 @@ void loop()
             Serial.println(batteryCapacitymAh);
             display.showNumberDec(batteryCapacitymAh);
 
-            messageToggle = !messageToggle;
-            if (messageToggle)
+            messageToggleTristate = (messageToggleTristate + 1) % 3;
+            if (messageToggleTristate == 0)
             {
                 display.showNumberDec(batteryCapacitymAh);
             }
-            else
+            else if (messageToggleTristate == 1)
             {
                 display.setSegments(TEXT_PERCENT);
                 display.showNumberDec(batteryPercentage, false, 2, 0);
             }
+            else
+            {
+                display.showNumberDecEx(batteryVoltage.getAvg(), 0b10000000, false);
+            }
         }
 
-        if (batteryVoltage.getAvg() < BAT_LOW_VOLTAGE_CUT_OFF)
+        if (batteryVoltage.getAvg() < 1000)
+        {
+            Serial.println(F("Battery disconnected mid discharge"));
+            display.setSegments(TEXT_ERR_BATT_DISCONNECTD_MID_DISCHARGE);
+            longBeep();
+            longBeep();
+            longBeep();
+            setState(ERROR);
+            return;
+        }
+        else if (batteryVoltage.getAvg() < BAT_LOW_VOLTAGE_CUT_OFF)
         {
             Serial.println(F("Done discharge, battery voltage too low"));
-            display.setSegments(TEXT_DONE);
-            // disconnect both discharge and charge
-            setState(DONE);
-            lastTimeMessageDisplayed = millis();
-            longBeep();
-            longBeep();
-            delay(500);
-            longBeep();
-            longBeep();
-            delay(500);
-            longBeep();
-            longBeep();
+            if (cycleMode == CHANGE_DISCHARGE)
+            {
+                setState(DONE);
+            }
+            else if (cycleMode == CHANGE_DISCHARGE_CHARGE)
+            {
+                Serial.println(F("Done discharge, battery voltage too low. Starting charge..."));
+                setState(SECOND_CHARGING);
+            }
         }
     }
     else if (state == DONE)
@@ -509,7 +654,7 @@ void loop()
             {
                 display.setSegments(TEXT_DONE);
             }
-            else
+            else if (cycleMode != CHARGE_ONLY)
             {
                 display.showNumberDec(batteryCapacitymAh);
             }
@@ -517,13 +662,18 @@ void loop()
     }
     else if (state == IDLE)
     {
-        if (millis() - lastTimeMessageDisplayed > 1000)
+        if (millis() - lastTimeMessageDisplayed > 500)
         {
             lastTimeMessageDisplayed = millis();
             messageToggle = !messageToggle;
             if (messageToggle)
             {
-                display.setSegments(TEXT_ON);
+                if (cycleMode == CHARGE_ONLY)
+                    display.setSegments(TEXT_ON1);
+                else if (cycleMode == CHANGE_DISCHARGE)
+                    display.setSegments(TEXT_ON2);
+                else
+                    display.setSegments(TEXT_ON3);
             }
             else
             {
