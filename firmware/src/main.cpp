@@ -555,7 +555,7 @@ void loop()
         }
 
         // are we done charging?
-        if (chargeCurrent.getAvg() < 50  || batteryVoltage.getAvg() > BAT_HIGH_VOLTAGE_CUT_OFF
+        if (chargeCurrent.getAvg() < 50  || batteryVoltage.getAvg() > BAT_HIGH_VOLTAGE_CUT_OFF)
         {
             // check if battery connected
             readBatteryVoltage(1000);
