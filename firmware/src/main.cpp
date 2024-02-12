@@ -1,3 +1,5 @@
+//TODO when charge-discharge mode, and over 1000mAh it shows weird numbers, like 14 on the "done" screen
+//TODO when charging it goes over 103% and does not stop, current still high
 #include <Arduino.h>
 #include <OneButton.h>
 #include <TM1637Display.h>
@@ -656,6 +658,7 @@ void loop()
             }
             else if (cycleMode != CHARGE_ONLY)
             {
+                Serial.println(batteryCapacitymAh);
                 display.showNumberDec(batteryCapacitymAh);
             }
         }
