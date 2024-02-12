@@ -1,5 +1,4 @@
 //TODO when charge-discharge mode, and over 1000mAh it shows weird numbers, like 14 on the "done" screen
-//TODO when charging it goes over 103% and does not stop, current still high
 #include <Arduino.h>
 #include <OneButton.h>
 #include <TM1637Display.h>
@@ -556,7 +555,7 @@ void loop()
         }
 
         // are we done charging?
-        if (chargeCurrent.getAvg() < 25)
+        if (chargeCurrent.getAvg() < 50  || batteryVoltage.getAvg() > BAT_HIGH_VOLTAGE_CUT_OFF
         {
             // check if battery connected
             readBatteryVoltage(1000);
