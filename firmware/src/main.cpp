@@ -259,6 +259,7 @@ void setState(STATE stateValue)
     }
     if (state == DONE)
     {
+        batteryVoltage.reset();
         display.setSegments(TEXT_DONE);
         lastTimeMessageDisplayed = millis();
         longBeep();
@@ -269,6 +270,10 @@ void setState(STATE stateValue)
         delay(500);
         longBeep();
         longBeep();
+    }
+    if (state == ERROR)
+    {
+        batteryVoltage.reset();
     }
 }
 
