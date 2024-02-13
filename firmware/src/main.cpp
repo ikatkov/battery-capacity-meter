@@ -1,4 +1,3 @@
-//TODO when startunig up, it reads battery voltage seems like it uses a lot of zero measurements
 #include <Arduino.h>
 #include <OneButton.h>
 #include <TM1637Display.h>
@@ -45,6 +44,13 @@ const uint8_t TEXT_ON3[] = {
     SEG_A | SEG_B | SEG_C | SEG_D | SEG_G          // 3
 };
 
+const uint8_t TEXT_ON4[] = {
+    SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F, // O
+    SEG_C | SEG_E | SEG_G,                         // n
+    0,                                             // space
+    SEG_B | SEG_C | SEG_F | SEG_G                  // 4
+};
+
 const uint8_t TEXT_CHRG[] = {
     SEG_A | SEG_D | SEG_E | SEG_F,         // C
     SEG_B | SEG_C | SEG_E | SEG_F | SEG_G, // H
@@ -81,7 +87,7 @@ const uint8_t TEXT_BATT[] = {
 };
 
 // Overvoltage, either from the charger or the battery
-const uint8_t TEXT_ERR_OVERVOLTAGE[] = {
+const uint8_t TEXT_ERR_1_OVERVOLTAGE[] = {
     SEG_A | SEG_D | SEG_E | SEG_F | SEG_G, // E
     SEG_E | SEG_G,                         // r
     SEG_E | SEG_G,                         // r
@@ -89,7 +95,7 @@ const uint8_t TEXT_ERR_OVERVOLTAGE[] = {
 };
 
 // Battery disconnected mid charge process
-const uint8_t TEXT_ERR_BATT_DISCONNECTD_MID_CHARGE[] = {
+const uint8_t TEXT_ERR_2_BATT_DISCONNECTD_MID_CHARGE[] = {
     SEG_A | SEG_D | SEG_E | SEG_F | SEG_G, // E
     SEG_E | SEG_G,                         // r
     SEG_E | SEG_G,                         // r
@@ -97,7 +103,7 @@ const uint8_t TEXT_ERR_BATT_DISCONNECTD_MID_CHARGE[] = {
 };
 
 // Battery disconnected mid discharge process
-const uint8_t TEXT_ERR_BATT_DISCONNECTD_MID_DISCHARGE[] = {
+const uint8_t TEXT_ERR_3_BATT_DISCONNECTD_MID_DISCHARGE[] = {
     SEG_A | SEG_D | SEG_E | SEG_F | SEG_G, // E
     SEG_E | SEG_G,                         // r
     SEG_E | SEG_G,                         // r
@@ -115,18 +121,27 @@ const uint8_t TEXT_PERCENT[] = {
     SEG_C | SEG_D | SEG_E | SEG_G  //%
 };
 
+const uint8_t TEXT_STOR[] = {
+    SEG_A | SEG_C | SEG_D | SEG_F | SEG_G, // S
+    SEG_D | SEG_E | SEG_F | SEG_G,         // t
+    SEG_C | SEG_D | SEG_E | SEG_G,         // o
+    SEG_E | SEG_G                          // r
+};
+
 OneButton chargeDischargeButton = OneButton(CHARGE_DISCHARGE_BUTTON_PIN, true, true);
 OneButton oneAmpButton = OneButton(ONE_AMP_BUTTON_PIN, true, true);
 TM1637Display display(CLK_PIN, DIO_PIN);
 
 #define BAT_LOW_VOLTAGE_CUT_OFF 3000
 #define BAT_HIGH_VOLTAGE_CUT_OFF 4150
+#define BAT_HIGH_VOLTAGE_STORAGE_CUT_OFF 3800
 
 enum CYCLE_MODE
 {
     CHARGE_ONLY,
     CHANGE_DISCHARGE,
-    CHANGE_DISCHARGE_CHARGE
+    CHANGE_DISCHARGE_STORAGE,
+    STORAGE_ONLY
 };
 
 enum STATE
@@ -176,13 +191,20 @@ void setCycleMode(CYCLE_MODE cycleModeValue)
         display.setSegments(TEXT_TEST);
         delay(500);
     }
-    else if (cycleMode == CHANGE_DISCHARGE_CHARGE)
+    else if (cycleMode == CHANGE_DISCHARGE_STORAGE)
     {
         display.setSegments(TEXT_CHRG);
         delay(500);
         display.setSegments(TEXT_TEST);
         delay(500);
-        display.setSegments(TEXT_CHRG);
+        display.setSegments(TEXT_STOR);
+        delay(500);
+    }
+    else if (cycleMode == STORAGE_ONLY)
+    {
+        display.setSegments(TEXT_STOR);
+        delay(500);
+        display.setSegments(TEXT_ONLY);
         delay(500);
     }
 }
@@ -383,7 +405,7 @@ float computeChargeCurrent(float voltage)
     }
 }
 
-void readBatteryVoltage(int delayMs = 0)
+void readBatteryVoltage(int delayMs)
 {
     if (state == CHARGING)
     {
@@ -503,7 +525,7 @@ void loop()
         if (overVoltage)
         {
             Serial.println(F("Overvoltage"));
-            display.setSegments(TEXT_ERR_OVERVOLTAGE);
+            display.setSegments(TEXT_ERR_1_OVERVOLTAGE);
             longBeep();
             longBeep();
             longBeep();
@@ -522,7 +544,7 @@ void loop()
             if (batteryVoltage.getAvg() < 1000)
             {
                 Serial.println(F("Battery disconnected"));
-                display.setSegments(TEXT_ERR_BATT_DISCONNECTD_MID_CHARGE);
+                display.setSegments(TEXT_ERR_2_BATT_DISCONNECTD_MID_CHARGE);
                 longBeep();
                 longBeep();
                 longBeep();
@@ -547,6 +569,13 @@ void loop()
             }
         }
 
+        // are we done charging for storage?
+        if (batteryVoltage.getAvg() > BAT_HIGH_VOLTAGE_STORAGE_CUT_OFF &&
+            (cycleMode == STORAGE_ONLY || (cycleMode == CHANGE_DISCHARGE_STORAGE && state == SECOND_CHARGING)))
+        {
+            Serial.println(F("Done charging for storage"));
+            setState(DONE);
+        }
         // read charge current every 1 seconds when charging
         if (lastTimeChargeCurrentRead + 1000 < millis())
         {
@@ -554,22 +583,27 @@ void loop()
             lastTimeChargeCurrentRead = millis();
         }
 
-        // are we done charging?
-        if (chargeCurrent.getAvg() < 50  || batteryVoltage.getAvg() > BAT_HIGH_VOLTAGE_CUT_OFF)
+        if (chargeCurrent.getAvg() < 50 || batteryVoltage.getAvg() > BAT_HIGH_VOLTAGE_CUT_OFF)
         {
             // check if battery connected
             readBatteryVoltage(1000);
             if (batteryVoltage.getAvg() < 1000)
             {
                 Serial.println(F("Battery disconnected mid charge"));
-                display.setSegments(TEXT_ERR_BATT_DISCONNECTD_MID_CHARGE);
+                display.setSegments(TEXT_ERR_2_BATT_DISCONNECTD_MID_CHARGE);
                 longBeep();
                 longBeep();
                 longBeep();
                 setState(ERROR);
                 return;
             }
-            else if (cycleMode == CHANGE_DISCHARGE || (cycleMode == CHANGE_DISCHARGE_CHARGE && state == CHARGING))
+            // charging is done
+            if (cycleMode == CHARGE_ONLY)
+            {
+                Serial.println(F("Done charging only"));
+                setState(DONE);
+            }
+            else if (cycleMode == CHANGE_DISCHARGE || (cycleMode == CHANGE_DISCHARGE_STORAGE && state == CHARGING))
             {
                 Serial.println(F("Starting discharge, after full charge"));
                 display.setSegments(TEXT_TEST);
@@ -577,11 +611,6 @@ void loop()
 
                 dischargeIntervalStartedMs = millis();
                 setState(DISCHARGING);
-            }
-            if (cycleMode == CHARGE_ONLY || (cycleMode == CHANGE_DISCHARGE_CHARGE && state == SECOND_CHARGING))
-            {
-                Serial.println(F("Done charging"));
-                setState(DONE);
             }
         }
     }
@@ -598,7 +627,7 @@ void loop()
             unsigned long elapsedTimeMs = millis() - dischargeIntervalStartedMs;
             Serial.print(F("elapsedTimeMs=\t"));
             Serial.println(elapsedTimeMs);
-            double batteryCapacity = (double)elapsedTimeMs  / 3600 / 1000 * (oneAmpState ? 1000 : 500);
+            double batteryCapacity = (double)elapsedTimeMs / 3600 / 1000 * (oneAmpState ? 1000 : 500);
             batteryCapacitymAh = round(batteryCapacity);
 
             Serial.print(F("Discharge battery capacity (mA*h)=\t"));
@@ -624,7 +653,7 @@ void loop()
         if (batteryVoltage.getAvg() < 1000)
         {
             Serial.println(F("Battery disconnected mid discharge"));
-            display.setSegments(TEXT_ERR_BATT_DISCONNECTD_MID_DISCHARGE);
+            display.setSegments(TEXT_ERR_3_BATT_DISCONNECTD_MID_DISCHARGE);
             longBeep();
             longBeep();
             longBeep();
@@ -638,7 +667,7 @@ void loop()
             {
                 setState(DONE);
             }
-            else if (cycleMode == CHANGE_DISCHARGE_CHARGE)
+            else if (cycleMode == CHANGE_DISCHARGE_STORAGE)
             {
                 Serial.println(F("Done discharge, battery voltage too low. Starting charge..."));
                 setState(SECOND_CHARGING);
@@ -674,8 +703,10 @@ void loop()
                     display.setSegments(TEXT_ON1);
                 else if (cycleMode == CHANGE_DISCHARGE)
                     display.setSegments(TEXT_ON2);
-                else
+                else if (cycleMode == CHANGE_DISCHARGE_STORAGE)
                     display.setSegments(TEXT_ON3);
+                else if (cycleMode == STORAGE_ONLY)
+                    display.setSegments(TEXT_ON4);
             }
             else
             {
