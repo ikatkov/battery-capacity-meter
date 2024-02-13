@@ -1,4 +1,4 @@
-//TODO when charge-discharge mode, and over 1000mAh it shows weird numbers, like 14 on the "done" screen
+//TODO when startunig up, it reads battery voltage seems like it uses a lot of zero measurements
 #include <Arduino.h>
 #include <OneButton.h>
 #include <TM1637Display.h>
@@ -598,7 +598,7 @@ void loop()
             unsigned long elapsedTimeMs = millis() - dischargeIntervalStartedMs;
             Serial.print(F("elapsedTimeMs=\t"));
             Serial.println(elapsedTimeMs);
-            double batteryCapacity = elapsedTimeMs * (oneAmpState ? 1000 : 500) / 3600 / 1000;
+            double batteryCapacity = (double)elapsedTimeMs  / 3600 / 1000 * (oneAmpState ? 1000 : 500);
             batteryCapacitymAh = round(batteryCapacity);
 
             Serial.print(F("Discharge battery capacity (mA*h)=\t"));
