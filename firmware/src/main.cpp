@@ -669,7 +669,7 @@ void loop()
             }
             else if (cycleMode == CHANGE_DISCHARGE_STORAGE)
             {
-                Serial.println(F("Done discharge, battery voltage too low. Starting charge..."));
+                Serial.println(F("Done discharge, battery voltage too low. Starting charge to storage voltage..."));
                 setState(SECOND_CHARGING);
             }
         }
