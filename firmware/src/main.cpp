@@ -62,7 +62,7 @@ const uint8_t TEXT_ONLY[] = {
     SEG_C | SEG_D | SEG_E | SEG_G, // o
     SEG_C | SEG_E | SEG_G,         // n
     SEG_B | SEG_C,                 // l
-    SEG_B | SEG_C | SEG_F | SEG_G  // Y
+    0                              // space
 };
 
 const uint8_t TEXT_TEST[] = {
@@ -155,7 +155,7 @@ enum STATE
 };
 
 STATE state = IDLE;
-CYCLE_MODE cycleMode = CHANGE_DISCHARGE;
+CYCLE_MODE cycleMode = CHANGE_DISCHARGE_STORAGE;
 bool oneAmpState = false; // false = 0.5A, true = 1A
 
 movingAvg chargeCurrent(12);  // use 12 data points for the moving average, every 5sec it's 60sec averaging
@@ -278,7 +278,7 @@ void onChargeDischargeButtonLngPressStart()
     longBeep();
     if (state == IDLE)
     {
-        setCycleMode(CYCLE_MODE((cycleMode + 1) % 3));
+        setCycleMode(CYCLE_MODE((cycleMode + 1) % 4));
     }
 }
 
@@ -684,7 +684,7 @@ void loop()
             {
                 display.setSegments(TEXT_DONE);
             }
-            else if (cycleMode != CHARGE_ONLY)
+            else if (cycleMode != CHARGE_ONLY && cycleMode != STORAGE_ONLY)
             {
                 Serial.println(batteryCapacitymAh);
                 display.showNumberDec(batteryCapacitymAh);
