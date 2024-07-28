@@ -1,3 +1,8 @@
+# Assembly notes
+
+Vref pin on Arduino Pro Mini breakout board is not on any pin, solder a wire to capacitor between 
+pins 12 and 13. To the pin13 end.
+
 # 7 Segments text
 
 Here is an example of which letters are possible
