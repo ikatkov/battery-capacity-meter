@@ -22,8 +22,6 @@
 #define CHARGE_DISCHARGE_BUTTON_PIN 3
 #define ONE_AMP_BUTTON_PIN 2
 
-
-
 OneButton chargeDischargeButton = OneButton(CHARGE_DISCHARGE_BUTTON_PIN, true, true);
 OneButton oneAmpButton = OneButton(ONE_AMP_BUTTON_PIN, true, true);
 TM1637Display display(CLK_PIN, DIO_PIN);
@@ -37,7 +35,8 @@ enum CYCLE_MODE
     CHARGE_ONLY,
     CHANGE_DISCHARGE,
     CHANGE_DISCHARGE_STORAGE,
-    STORAGE_ONLY
+    STORAGE_ONLY,
+    DISCHARGE_ONLY,
 };
 
 enum STATE
@@ -99,6 +98,13 @@ void setCycleMode(CYCLE_MODE cycleModeValue)
     else if (cycleMode == STORAGE_ONLY)
     {
         display.setSegments(TEXT_STOR);
+        delay(500);
+        display.setSegments(TEXT_ONLY);
+        delay(500);
+    }
+    else if (cycleMode == DISCHARGE_ONLY)
+    {
+        display.setSegments(TEXT_TEST);
         delay(500);
         display.setSegments(TEXT_ONLY);
         delay(500);
@@ -179,7 +185,7 @@ void onChargeDischargeButtonLngPressStart()
     longBeep();
     if (state == IDLE)
     {
-        setCycleMode(CYCLE_MODE((cycleMode + 1) % 4));
+        setCycleMode(CYCLE_MODE((cycleMode + 1) % 5));
     }
 }
 
@@ -199,6 +205,13 @@ void onChargeDischargeButtonClick()
             longBeep();
             longBeep();
             setState(IDLE);
+        }
+        else if (cycleMode == DISCHARGE_ONLY)
+        {
+            Serial.println(F("Start discharging..."));
+            setState(DISCHARGING);
+            display.setSegments(TEXT_TEST);
+            delay(1000);
         }
         else
         {
@@ -425,11 +438,17 @@ void loop()
         bool overVoltage = digitalRead(OVERVOLTAGE_SENSE_PIN);
         if (overVoltage)
         {
-            Serial.println(F("Overvoltage"));
-            display.setSegments(TEXT_ERR_1_OVERVOLTAGE);
-            longBeep();
-            longBeep();
-            longBeep();
+            // when battery is not connected - this is HIGH,
+            // because SCR triggers, check battery voltage to see if any battery connected
+            readBatteryVoltage(10);
+            if (batteryVoltage.getAvg() > 1000)
+            {
+                Serial.println(F("Overvoltage"));
+                display.setSegments(TEXT_ERR_1_OVERVOLTAGE);
+                longBeep();
+                longBeep();
+                longBeep();
+            }
         }
         lastTimeBatteryPolarityRead = millis();
     }
@@ -608,6 +627,8 @@ void loop()
                     display.setSegments(TEXT_ON3);
                 else if (cycleMode == STORAGE_ONLY)
                     display.setSegments(TEXT_ON4);
+                else if (cycleMode == DISCHARGE_ONLY)
+                    display.setSegments(TEXT_ON5);
             }
             else
             {

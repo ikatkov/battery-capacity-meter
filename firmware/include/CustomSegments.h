@@ -28,6 +28,13 @@ const uint8_t TEXT_ON4[] = {
     SEG_B | SEG_C | SEG_F | SEG_G                  // 4
 };
 
+const uint8_t TEXT_ON5[] = {
+    SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F, // O
+    SEG_C | SEG_E | SEG_G,                         // n
+    0,                                             // space
+    SEG_A | SEG_C | SEG_D | SEG_F | SEG_G                  // 5
+};
+
 const uint8_t TEXT_CHRG[] = {
     SEG_A | SEG_D | SEG_E | SEG_F,         // C
     SEG_B | SEG_C | SEG_E | SEG_F | SEG_G, // H
